@@ -295,7 +295,7 @@ defmodule PaperTrail do
 
   defp serialize(model) do
     relationships = model.__struct__.__schema__(:associations)
-    Map.drop(model, [:__struct__, :__meta__] ++ relationships)
+    Map.drop(model, [:__struct__, :__meta__] ++ relationships ++ filtered_fields())
   end
 
   defp serialize_changes(data), do: serialize_changes(data, true)
@@ -328,7 +328,11 @@ defmodule PaperTrail do
         else
           serialize_changes(value, false)
         end
-        Map.put(accum, key, value)
+        if key in filtered_fields() do
+          Map.put(accum, key, "[FILTERED]")
+        else
+          Map.put(accum, key, value)
+        end
       end)
     end
   end
@@ -338,4 +342,6 @@ defmodule PaperTrail do
 
   defp add_prefix(changeset, nil), do: changeset
   defp add_prefix(changeset, prefix), do: Ecto.put_meta(changeset, prefix: prefix)
+
+  defp filtered_fields(), do: Application.get_env(:paper_trail, :filter, [])
 end
