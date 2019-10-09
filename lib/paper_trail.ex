@@ -329,7 +329,7 @@ defmodule PaperTrail do
           serialize_changes(value, false)
         end
         if key in filtered_fields() do
-          Map.put(accum, key, "[FILTERED]")
+          accum
         else
           Map.put(accum, key, value)
         end

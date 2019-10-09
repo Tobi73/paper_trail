@@ -419,6 +419,176 @@ defmodule PaperTrailTest do
     assert old_person == person_before_deletion
   end
 
+
+  test "creating a company creates a company version with correct attributes while ignoring filtered fields during filling of item changes" do
+    Application.put_env(:paper_trail, :filter, [:city, :room])
+
+    user = create_user()
+    {:ok, result} = create_company_with_version(@create_company_params, originator: user)
+
+    company_count = Company.count()
+    version_count = Version.count()
+
+    company = result[:model] |> serialize
+    version = result[:version] |> serialize
+
+    assert Map.keys(result) == [:model, :version]
+    assert company_count == 1
+    assert version_count == 1
+    assert Map.drop(company, [:id, :inserted_at, :updated_at]) == %{
+      name: "Acme LLC",
+      is_active: true,
+      city: "Greenwich",
+      website: nil,
+      address: nil,
+      facebook: nil,
+      twitter: nil,
+      founded_in: nil
+    }
+    assert Map.drop(version, [:id, :inserted_at]) == %{
+      event: "insert",
+      item_type: "SimpleCompany",
+      item_id: company.id,
+      item_changes: Map.drop(company, [:city]),
+      originator_id: user.id,
+      origin: nil,
+      meta: nil
+    }
+    assert not Map.has_key?(version.item_changes, :city)
+    assert company == first(Company, :id) |> @repo.one |> serialize
+  end
+
+  test "updating a company with originator creates a correct company version while ignoring filtered fields during filling of item changes" do
+    Application.put_env(:paper_trail, :filter, [:city, :room, :website])
+
+    user = create_user()
+    {:ok, insert_result} = create_company_with_version()
+    {:ok, result} = update_company_with_version(
+      insert_result[:model], @update_company_params, user: user
+    )
+
+    company_count = Company.count()
+    version_count = Version.count()
+
+    company = result[:model] |> serialize
+    version = result[:version] |> serialize
+
+    assert Map.keys(result) == [:model, :version]
+    assert company_count == 1
+    assert version_count == 2
+    assert Map.drop(company, [:id, :inserted_at, :updated_at]) == %{
+      name: "Acme LLC",
+      is_active: true,
+      city: "Hong Kong",
+      website: "http://www.acme.com",
+      address: nil,
+      facebook: "acme.llc",
+      twitter: nil,
+      founded_in: nil
+    }
+    assert Map.drop(version, [:id, :inserted_at]) == %{
+      event: "update",
+      item_type: "SimpleCompany",
+      item_id: company.id,
+      item_changes: %{facebook: "acme.llc"},
+      originator_id: user.id,
+      origin: nil,
+      meta: nil
+    }
+    assert company == first(Company, :id) |> @repo.one |> serialize
+  end
+
+  test "deleting a company creates a company version with correct attributes while ignoring filtered fields during filling of item changes" do
+    Application.put_env(:paper_trail, :filter, [:city, :room, :website])
+
+    user = create_user()
+    {:ok, insert_result} = create_company_with_version()
+    {:ok, update_result} = update_company_with_version(insert_result[:model])
+    company_before_deletion = first(Company, :id) |> @repo.one |> serialize
+    {:ok, result} = PaperTrail.delete(update_result[:model], originator: user)
+
+    company_count = Company.count()
+    version_count = Version.count()
+
+    company = result[:model] |> serialize
+    version = result[:version] |> serialize
+
+    assert Map.keys(result) == [:model, :version]
+    assert company_count == 0
+    assert version_count == 3
+    assert Map.drop(company, [:id, :inserted_at, :updated_at]) == %{
+      name: "Acme LLC",
+      is_active: true,
+      city: "Hong Kong",
+      website: "http://www.acme.com",
+      address: nil,
+      facebook: "acme.llc",
+      twitter: nil,
+      founded_in: nil
+    }
+    assert Map.drop(version, [:id, :inserted_at]) == %{
+      event: "delete",
+      item_type: "SimpleCompany",
+      item_id: company.id,
+      item_changes: %{
+        id: company.id,
+        inserted_at: company.inserted_at,
+        updated_at: company.updated_at,
+        name: "Acme LLC",
+        is_active: true,
+        address: nil,
+        facebook: "acme.llc",
+        twitter: nil,
+        founded_in: nil
+      },
+      originator_id: user.id,
+      origin: nil,
+      meta: nil
+    }
+    assert company == company_before_deletion
+  end
+
+  test "updating a company with people changes creates a version with correct attributes while ignoring filtered fields during filling of item changes" do
+    Application.put_env(:paper_trail, :filter, [:first_name])
+
+    {:ok, %{model: company}} = create_company_with_people_with_version()
+    person_id = List.first(company.people).id
+    {:ok, result} = Company.people_changeset(company, %{
+      name: "Another Company",
+      people: [%{id: person_id, first_name: "abmm"}]
+    }) |> PaperTrail.update
+    company_count = Person.count()
+    version_count = Version.count()
+    company = result[:model] |> serialize
+    version = result[:version] |> serialize
+    assert Map.keys(result) == [:model, :version]
+    assert company_count == 1
+    assert version_count == 2
+    assert Map.drop(company, [:id, :inserted_at, :updated_at]) == %{
+      name: "Another Company",
+      address: nil,
+      city: "Greenwich",
+      twitter: nil,
+      facebook: nil,
+      founded_in: nil,
+      is_active: true,
+      website: nil
+    }
+    assert Map.drop(version, [:id, :inserted_at]) == %{
+      event: "update",
+      item_type: "SimpleCompany",
+      item_id: company.id,
+      item_changes: %{
+        name: "Another Company",
+        people: [%{ id: person_id}]
+      },
+      originator_id: nil,
+      origin: nil,
+      meta: nil
+    }
+    assert company == first(Company, :id) |> @repo.one |> serialize
+   end
+
   defp create_user do
     User.changeset(%User{}, %{token: "fake-token", username: "izelnakri"}) |> @repo.insert!
   end
